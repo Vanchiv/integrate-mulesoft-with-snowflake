@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:db="http://www.mulesoft.org/schema/mule/db"
+	xmlns:http="http://www.mulesoft.org/schema/mule/http"
+	xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+	<http:listener-config name="HTTP_Listener_config" doc:name="HTTP Listener config" doc:id="409c8f73-fc7d-4a83-a60f-36a9dd01e3e4" >
+		<http:listener-connection host="0.0.0.0" port="8081" />
+	</http:listener-config>
+	<db:config name="Database_Config" doc:name="Database Config" doc:id="0068cd49-8423-45b0-9071-72c4af1c31a2" >
+		<db:generic-connection url="jdbc:snowflake://&lt;&lt;account_name&gt;&gt;.snowflakecomputing.com/?db=maxmule&amp;schema=public" driverClassName="net.snowflake.client.jdbc.SnowflakeDriver" user="&lt;&lt;username&gt;&gt;" password="&lt;&lt;password&gt;&gt;" />
+	</db:config>
+	<flow name="mulesoft-to-snowflake-flow" doc:id="689d83f0-d30c-4776-a15b-4bd42cc73c0a" >
+		<http:listener doc:name="Listener" doc:id="43c368cf-d237-4215-bc68-94ac03b6c7d0" config-ref="HTTP_Listener_config" path="/snowflake"/>
+		<db:execute-ddl doc:name="Create Stage" doc:id="60c80a19-66c9-412e-85c9-3234a15753ed" config-ref="Database_Config">
+			<db:sql ><![CDATA[CREATE OR REPLACE STAGE
+S3_EXT_STAGE URL='<<s3_bucket_url>>'
+CREDENTIALS=(aws_key_id='<<aws_access_key>>' aws_secret_key='aws_secret_key');]]></db:sql>
+		</db:execute-ddl>
+		<db:execute-ddl doc:name="Create File Format" doc:id="4505e083-bce2-4089-a8be-6284c2db7347" config-ref="Database_Config">
+			<db:sql ><![CDATA[CREATE OR REPLACE FILE FORMAT MY_CSV_FORMAT
+TYPE = csv
+FIELD_DELIMITER = '|'
+ERROR_ON_COLUMN_COUNT_MISMATCH=false
+
+]]></db:sql>
+		</db:execute-ddl>
+		<db:execute-ddl doc:name="Copy Into" doc:id="3d7fabc5-ccc9-4bb2-9bdc-f1e8bbeaa9ed" config-ref="Database_Config">
+			<db:sql ><![CDATA[COPY INTO PRICES
+FROM @S3_EXT_STAGE
+FILE_FORMAT = (FORMAT_NAME = 'MY_CSV_FORMAT')
+PATTERN='.*.csv'
+ON_ERROR = 'SKIP_FILE';]]></db:sql>
+		</db:execute-ddl>
+		<ee:transform doc:name="set processed records" doc:id="7521b2d2-e6cd-45a5-89d4-b4230869dd6f" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{
+    "RecordsProcessed to Snowflake": payload
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	</flow>
+</mule>
